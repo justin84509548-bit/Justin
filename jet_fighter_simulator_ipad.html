@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Jet Fighter Simulator</title>
+<style>
+html,body{margin:0;overflow:hidden;background:#74c9ff;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;touch-action:none}
+canvas{display:block;width:100vw;height:100vh}
+#hud{position:fixed;top:10px;left:10px;color:#7cff7c;background:rgba(0,0,0,.35);padding:10px 12px;border-radius:12px;font:14px/1.45 monospace;text-shadow:0 0 6px #00ff00}
+#msg{position:fixed;left:50%;top:40%;transform:translate(-50%,-50%);color:white;background:rgba(0,0,0,.55);padding:18px 24px;border-radius:18px;text-align:center;font-size:20px;max-width:86vw}
+#cross{position:fixed;left:50%;top:48%;transform:translate(-50%,-50%);width:90px;height:90px;border:2px solid rgba(120,255,120,.75);border-radius:50%;box-shadow:0 0 12px rgba(0,255,0,.5)}
+#cross:before,#cross:after{content:"";position:absolute;background:rgba(120,255,120,.85)}
+#cross:before{left:50%;top:-18px;width:2px;height:126px}
+#cross:after{top:50%;left:-18px;height:2px;width:126px}
+#controls{position:fixed;bottom:14px;left:0;right:0;display:flex;justify-content:space-between;padding:0 14px;pointer-events:none}
+.pad{display:grid;grid-template-columns:68px 68px;gap:9px;pointer-events:auto}
+button{height:56px;border:0;border-radius:15px;background:rgba(255,255,255,.78);font-size:16px;font-weight:800;box-shadow:0 4px 12px rgba(0,0,0,.2)}
+.fire{background:rgba(255,120,120,.86)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud"></div>
+<div id="cross"></div>
+<div id="msg">🛩️ Jet Fighter Simulator<br><small>油門+ 起飛，方向鍵控制，按 FIRE 打目標</small></div>
+<div id="controls">
+  <div class="pad">
+    <button id="left">←</button><button id="right">→</button>
+    <button id="up">▲</button><button id="down">▼</button>
+  </div>
+  <div class="pad">
+    <button id="thUp">油門+</button><button id="thDown">油門-</button>
+    <button id="fire" class="fire">FIRE</button><button id="reset">重來</button>
+  </div>
+</div>
+
+<script>
+const canvas=document.getElementById("c"),ctx=canvas.getContext("2d"),hud=document.getElementById("hud"),msg=document.getElementById("msg");
+function resize(){canvas.width=innerWidth*devicePixelRatio;canvas.height=innerHeight*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0)}
+addEventListener("resize",resize);resize();
+
+let hold={},keys={};
+function bind(id,k){let e=document.getElementById(id);e.addEventListener("touchstart",ev=>{ev.preventDefault();hold[k]=true;msg.style.display="none"});e.addEventListener("touchend",ev=>{ev.preventDefault();hold[k]=false});e.addEventListener("mousedown",()=>{hold[k]=true;msg.style.display="none"});e.addEventListener("mouseup",()=>hold[k]=false)}
+["left","right","up","down","thUp","thDown","fire"].forEach(x=>bind(x,x));
+document.getElementById("reset").onclick=()=>reset();
+addEventListener("keydown",e=>{keys[e.key]=true;msg.style.display="none";if(e.key.toLowerCase()=="r")reset()});
+addEventListener("keyup",e=>keys[e.key]=false);
+function press(k){return hold[k]||keys[k]||keys[k.toUpperCase()]}
+
+let p,bullets,targets,particles,frame;
+function reset(){
+ p={x:0,y:90,z:0,spd:1.2,thr:0,pitch:0,roll:0,head:0,fuel:100,hp:100,score:0,status:"fly",cool:0};
+ bullets=[];particles=[];targets=[];
+ for(let i=0;i<10;i++) targets.push({x:(Math.random()-.5)*900,y:120+Math.random()*260,z:900+i*480,hp:1});
+ frame=0;
+ msg.innerHTML="🛩️ Jet Fighter Simulator<br><small>油門+ 起飛，方向鍵控制，按 FIRE 打目標</small>";
+ msg.style.display="block";
+}
+reset();
+
+function project(x,y,z){
+ let dx=x-p.x, dy=y-p.y, dz=z-p.z;
+ let s=Math.sin(-p.head), c=Math.cos(-p.head);
+ let rx=dx*c-dz*s, rz=dx*s+dz*c;
+ dy-=p.pitch*250;
+ rx-=p.roll*rz*.45;
+ if(rz<8)return null;
+ let f=520/rz;
+ return {x:innerWidth/2+rx*f,y:innerHeight*.52-dy*f,scale:f,z:rz};
+}
+
+function update(){
+ if(p.status!="fly")return;
+ frame++;
+ if(press("thUp"))p.thr+=.65;
+ if(press("thDown"))p.thr-=.8;
+ p.thr=Math.max(0,Math.min(100,p.thr));
+ if(press("up")||keys.ArrowUp)p.pitch+=.018;
+ if(press("down")||keys.ArrowDown)p.pitch-=.018;
+ if(press("left")||keys.ArrowLeft)p.roll-=.03;
+ if(press("right")||keys.ArrowRight)p.roll+=.03;
+ p.pitch*=.965;p.roll*=.94;
+ p.pitch=Math.max(-.7,Math.min(.7,p.pitch));p.roll=Math.max(-.9,Math.min(.9,p.roll));
+ p.head+=p.roll*.025;
+ p.spd+=p.thr*.004-.018;
+ p.spd=Math.max(.4,Math.min(8.8,p.spd));
+ p.y+=p.pitch*p.spd*1.5 + p.spd*.03 - .055;
+ p.y=Math.max(8,p.y);
+ p.x+=Math.sin(p.head)*p.spd*8;
+ p.z+=Math.cos(p.head)*p.spd*8;
+ if(p.thr>0)p.fuel-=p.thr*.00045;
+ if(p.fuel<=0){p.fuel=0;p.thr=0}
+ if(p.y<=9 && p.spd>2.8){p.status="crash";msg.innerHTML="💥 撞地了<br><small>拉高一點，別貼地高速飛</small>";msg.style.display="block"}
+ if((hold.fire||keys[" "]||keys.f||keys.F)&&p.cool<=0){
+   bullets.push({x:p.x,y:p.y,z:p.z,head:p.head,pitch:p.pitch,life:80});
+   p.cool=12;
+ }
+ p.cool--;
+ bullets.forEach(b=>{b.x+=Math.sin(b.head)*22;b.z+=Math.cos(b.head)*22;b.y+=b.pitch*10;b.life--});
+ bullets=bullets.filter(b=>b.life>0);
+ for(let b of bullets){
+  for(let t of targets){
+   let d=Math.hypot(b.x-t.x,b.y-t.y,b.z-t.z);
+   if(d<55&&t.hp>0){t.hp=0;b.life=0;p.score++;for(let i=0;i<22;i++)particles.push({x:t.x,y:t.y,z:t.z,vx:(Math.random()-.5)*18,vy:(Math.random()-.5)*18,vz:(Math.random()-.5)*18,life:35})}
+  }
+ }
+ particles.forEach(o=>{o.x+=o.vx;o.y+=o.vy;o.z+=o.vz;o.life--});
+ particles=particles.filter(o=>o.life>0);
+ targets=targets.filter(t=>t.hp>0 && t.z>p.z-200);
+ while(targets.length<10){let last=p.z+1200+Math.random()*4200;targets.push({x:(Math.random()-.5)*1000,y:90+Math.random()*340,z:last,hp:1})}
+}
+
+function drawSky(){
+ let w=innerWidth,h=innerHeight,hor=h*.58+p.pitch*230;
+ let g=ctx.createLinearGradient(0,0,0,h);g.addColorStop(0,"#0b4db3");g.addColorStop(.55,"#6fd2ff");g.addColorStop(1,"#e8fbff");
+ ctx.fillStyle=g;ctx.fillRect(0,0,w,h);
+ ctx.save();ctx.translate(w/2,hor);ctx.rotate(p.roll*.55);ctx.fillStyle="#4ca84d";ctx.fillRect(-w*2,0,w*4,h*2);ctx.restore();
+ ctx.strokeStyle="rgba(255,255,255,.85)";ctx.beginPath();ctx.moveTo(0,hor);ctx.lineTo(w,hor);ctx.stroke();
+}
+function drawGrid(){
+ ctx.strokeStyle="rgba(255,255,255,.18)";
+ for(let x=-1400;x<=1400;x+=180){let a=project(x,0,p.z+20),b=project(x,0,p.z+3200);if(a&&b){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}}
+ for(let z=Math.floor(p.z/180)*180+180;z<p.z+3200;z+=180){let a=project(-1400,0,z),b=project(1400,0,z);if(a&&b){ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}}
+}
+function drawJet(){
+ let w=innerWidth,h=innerHeight;
+ ctx.save();ctx.translate(w/2,h*.73);ctx.rotate(p.roll*.8);
+ ctx.fillStyle="#1e2630";
+ ctx.beginPath();ctx.moveTo(0,-72);ctx.lineTo(25,28);ctx.lineTo(85,75);ctx.lineTo(18,62);ctx.lineTo(0,108);ctx.lineTo(-18,62);ctx.lineTo(-85,75);ctx.lineTo(-25,28);ctx.closePath();ctx.fill();
+ ctx.fillStyle="#d7e6ff";ctx.beginPath();ctx.ellipse(0,-25,15,30,0,0,Math.PI*2);ctx.fill();
+ if(p.thr>20){ctx.fillStyle="orange";ctx.beginPath();ctx.moveTo(-16,90);ctx.lineTo(0,125+Math.random()*35);ctx.lineTo(16,90);ctx.fill()}
+ ctx.restore();
+}
+function drawTargets(){
+ for(let t of targets){
+  let q=project(t.x,t.y,t.z);if(!q)continue;
+  let s=Math.max(12,45*q.scale);
+  ctx.strokeStyle="#ff4444";ctx.lineWidth=2;
+  ctx.beginPath();ctx.rect(q.x-s/2,q.y-s/2,s,s);ctx.stroke();
+  ctx.fillStyle="#ff6666";ctx.fillText("TARGET",q.x-s/2,q.y-s/2-5);
+ }
+}
+function drawBullets(){
+ ctx.fillStyle="#ffff66";
+ for(let b of bullets){let q=project(b.x,b.y,b.z);if(q){ctx.beginPath();ctx.arc(q.x,q.y,5,0,Math.PI*2);ctx.fill()}}
+ ctx.fillStyle="orange";
+ for(let o of particles){let q=project(o.x,o.y,o.z);if(q){ctx.globalAlpha=Math.max(0,o.life/35);ctx.beginPath();ctx.arc(q.x,q.y,16*q.scale+3,0,Math.PI*2);ctx.fill();ctx.globalAlpha=1}}
+}
+function drawHUD(){
+ hud.innerHTML=`JET-FIGHTER HUD<br>SPD ${Math.round(p.spd*95)} km/h<br>ALT ${Math.round(p.y*4)} m<br>THR ${Math.round(p.thr)}%<br>FUEL ${Math.round(p.fuel)}%<br>SCORE ${p.score}<br>FIRE: 空白鍵 / 按鈕`;
+}
+function loop(){
+ update();drawSky();drawGrid();drawTargets();drawBullets();drawJet();drawHUD();requestAnimationFrame(loop)
+}
+loop();
+</script>
+</body>
+</html>
